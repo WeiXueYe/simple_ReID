@@ -51,3 +51,6 @@ __pycache__/
 video/*
 
 .claude/
+
+CLAUDE.md
+
