@@ -247,9 +247,11 @@ class PersonTracker:
             # 时间连续性加分：最近出现的人物更有可能是匹配的
             time_bonus = 0.0
             if person_info['missed_frames'] <= 2:
-                time_bonus = 0.05  # 最近出现的人物加分
+                time_bonus = 0.08  # 最近出现的人物加分
             elif person_info['missed_frames'] <= 5:
-                time_bonus = 0.02
+                time_bonus = 0.05
+            elif person_info['missed_frames'] <= 10:
+                time_bonus = 0.03
 
             # 综合评分
             final_similarity = feature_similarity + time_bonus
@@ -362,7 +364,96 @@ class PersonTracker:
         Returns:
             跟踪结果字典 {person_id: [appearance_records]}
         """
+        # 执行全局ID优化后处理
+        self._optimize_global_ids()
+
         return dict(self.tracking_results)
+
+    def _optimize_global_ids(self) -> None:
+        """
+        全局ID优化：在视频处理完成后，分析所有轨迹并合并相似的ID
+        """
+        if len(self.tracking_results) <= 3:  # 如果已经很少了，不需要优化
+            return
+
+        logger.info(f"开始全局ID优化，当前ID数量: {len(self.tracking_results)}")
+
+        # 获取所有person的特征序列
+        person_features = {}
+        for person_id, appearances in self.tracking_results.items():
+            if appearances:
+                # 使用该person的最后一个有效特征
+                last_appearance = appearances[-1]
+                if 'feature' in last_appearance and last_appearance['feature'] is not None:
+                    person_features[person_id] = last_appearance['feature']
+
+        # 寻找相似的ID进行合并
+        merged_pairs = []
+        person_ids = list(person_features.keys())
+
+        for i in range(len(person_ids)):
+            for j in range(i + 1, len(person_ids)):
+                id1, id2 = person_ids[i], person_ids[j]
+
+                # 计算特征相似度
+                similarity = cosine_similarity(person_features[id1], person_features[id2])
+
+                # 如果相似度很高，考虑合并
+                if similarity > 0.75:  # 全局优化使用更严格的阈值
+                    # 检查时间重叠，避免合并完全不重叠的轨迹
+                    if self._check_temporal_overlap(id1, id2, overlap_threshold=50):
+                        merged_pairs.append((id1, id2, similarity))
+
+        # 执行合并（按相似度排序，优先合并最相似的）
+        merged_pairs.sort(key=lambda x: x[2], reverse=True)
+        merged_ids = set()
+
+        for id1, id2, similarity in merged_pairs:
+            if id1 not in merged_ids and id2 not in merged_ids:
+                logger.info(f"全局优化合并: {id2} -> {id1} (相似度: {similarity:.3f})")
+                self._merge_tracking_results(id1, id2)
+                merged_ids.add(id2)
+
+        logger.info(f"全局ID优化完成，合并了 {len(merged_ids)} 个ID")
+
+    def _check_temporal_overlap(self, id1: str, id2: str, overlap_threshold: int = 10) -> bool:
+        """
+        检查两个ID的时间轨迹是否有重叠或接近
+        """
+        appearances1 = self.tracking_results.get(id1, [])
+        appearances2 = self.tracking_results.get(id2, [])
+
+        if not appearances1 or not appearances2:
+            return False
+
+        # 获取时间范围
+        start1 = appearances1[0]['frame_number']
+        end1 = appearances1[-1]['frame_number']
+        start2 = appearances2[0]['frame_number']
+        end2 = appearances2[-1]['frame_number']
+
+        # 检查是否有重叠或接近的时间段
+        if (start1 <= end2 + overlap_threshold and start2 <= end1 + overlap_threshold):
+            return True
+
+        return False
+
+    def _merge_tracking_results(self, target_id: str, source_id: str) -> None:
+        """
+        合并两个ID的跟踪结果
+        """
+        if target_id not in self.tracking_results or source_id not in self.tracking_results:
+            return
+
+        # 合并appearances，按帧号排序
+        merged_appearances = self.tracking_results[target_id] + self.tracking_results[source_id]
+        merged_appearances.sort(key=lambda x: x['frame_number'])
+
+        # 更新目标ID的结果
+        self.tracking_results[target_id] = merged_appearances
+
+        # 删除源ID
+        del self.tracking_results[source_id]
 
     def get_current_persons(self) -> Dict[str, Any]:
         """
@@ -555,7 +646,7 @@ class PersonTracker:
                     # 如果相似度很高，考虑合并
                     if similarity >= 0.85:  # 合并阈值
                         # 检查时间重叠情况
-                        overlap = self._check_temporal_overlap(id1, id2)
+                        overlap = self._check_temporal_overlap(id1, id2, overlap_threshold=50)
                         if overlap:
                             merged_pairs.append((id1, id2, similarity))
 
@@ -564,28 +655,6 @@ class PersonTracker:
             if id1 in self.known_persons and id2 in self.known_persons:
                 self.merge_persons(id1, id2)
 
-    def _check_temporal_overlap(self, id1: str, id2: str) -> bool:
-        """
-        检查两个ID是否有时间重叠
-        """
-        records1 = self.tracking_results.get(id1, [])
-        records2 = self.tracking_results.get(id2, [])
-
-        if not records1 or not records2:
-            return False
-
-        # 获取时间范围
-        frames1 = {r['frame_number'] for r in records1}
-        frames2 = {r['frame_number'] for r in records2}
-
-        # 检查是否有重叠或接近的帧
-        overlap_threshold = 10  # 10帧内的间隔认为是相关的
-        for f1 in frames1:
-            for f2 in frames2:
-                if abs(f1 - f2) <= overlap_threshold:
-                    return True
-
-        return False
 
     def _get_current_similarity_threshold(self) -> float:
         """

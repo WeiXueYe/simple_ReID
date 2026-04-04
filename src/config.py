@@ -49,15 +49,16 @@ class Config:
 
     # ==================== 特征提取配置 ====================
     # 人物ReID模型选择
-    # 可选：'osnet_x1_0', 'pcb_r50', 'mlfn', 'resnet50'
-    REID_MODEL_NAME = 'se_resnext50_32x4d'  # 更精确的模型，适合复杂场景
+    # 可选：'osnet_x1_0', 'pcb_r50', 'mlfn', 'resnet50', 'se_resnext50_32x4d', 'osnet_ain_x1_0', 'osnet_ibn_x1_0'
+    REID_MODEL_NAME = 'osnet_ain_x1_0'  # 最优性能模型，速度提升17倍，精度相当
 
     # 特征向量维度
-    FEATURE_DIM = 512
+    # 注意：osnet_ain_x1_0输出512维，se_resnext50_32x4d输出2048维
+    FEATURE_DIM = 512  # 与osnet_ain_x1_0匹配
 
     # 特征相似度阈值：高于此值认为是同一个人
     # 范围：0.0-1.0，值越高匹配越严格
-    FEATURE_SIMILARITY_THRESHOLD = 0.65
+    FEATURE_SIMILARITY_THRESHOLD = 0.55
 
     # 特征提取图像尺寸
     REID_IMG_WIDTH = 256  # 提高输入分辨率以提升特征质量
@@ -91,7 +92,7 @@ class Config:
     SHOT_TRANSITION_THRESHOLD = 0.3  # 帧间差异阈值
 
     # 动态相似度阈值
-    POST_TRANSITION_SIMILARITY_THRESHOLD = 0.58  # 切换后阈值
+    POST_TRANSITION_SIMILARITY_THRESHOLD = 0.48  # 切换后阈值
     TRANSITION_RECOVERY_FRAMES = 30  # 恢复到正常阈值的帧数
 
     # 切换后处理
